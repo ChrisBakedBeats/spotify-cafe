@@ -1,0 +1,49 @@
+name: Deploy House Café to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inject Spotify Client ID
+        env:
+          CLIENT_ID: ${{ vars.SPOTIFY_CLIENT_ID }}
+        run: |
+          if [ -z "$CLIENT_ID" ]; then
+            echo "::error::Add a repository variable named SPOTIFY_CLIENT_ID (Settings > Secrets and variables > Actions > Variables)."
+            exit 1
+          fi
+          mkdir dist
+          sed "s|PASTE_YOUR_SPOTIFY_CLIENT_ID|$CLIENT_ID|" index.html > dist/index.html
+          grep -q "$CLIENT_ID" dist/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

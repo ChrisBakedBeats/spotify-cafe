@@ -26,3 +26,15 @@ A single static page (`index.html`) that logs into Spotify (Authorization Code +
 - **The lights follow a beat clock, not the audio.** Spotify's browser audio is DRM-protected and its tempo/analysis endpoints are closed to new apps, so the page can't hear the music. Use **Tap** to tap along with the kick and sync the pulses and BPM.
 - The login and tokens are stored in your browser's localStorage only.
 - "Just look around" runs the scene without Spotify.
+
+## Deploy with GitHub Actions (GitHub Pages)
+
+`.github/workflows/deploy.yml` publishes the page to GitHub Pages on every push to `main`. The Client ID stays out of the repo: the workflow swaps it into the page at build time. (A PKCE Client ID isn't a secret, so a repository *variable* is fine.)
+
+1. Push this folder's contents to the **root** of a GitHub repo (`index.html` and `.github/` at the top level), on the `main` branch.
+2. In the repo: **Settings → Pages → Source: GitHub Actions**.
+3. **Settings → Secrets and variables → Actions → Variables → New repository variable**: name `SPOTIFY_CLIENT_ID`, value is your Client ID.
+4. In your Spotify app, add the Pages address as a **Redirect URI**, exactly: `https://<your-username>.github.io/<repo-name>/` (trailing slash included). Keep `http://127.0.0.1:8000/` too if you still want local runs.
+5. Push (or run the workflow from the **Actions** tab). The deployed URL appears in the workflow summary.
+
+If the build fails with "Add a repository variable", step 3 is missing. If Spotify says *INVALID_CLIENT: Invalid redirect URI*, the address in step 4 doesn't match the page's URL character for character.

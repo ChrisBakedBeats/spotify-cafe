@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>House Café · Spotify</title>
+<link href="https://fonts.googleapis.com/css2?family=Monoton&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--bg:#120a1f;--ink:#f4e9ff;--pill:rgba(20,10,38,.78);--line:rgba(255,255,255,.18)}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:'DM Sans',system-ui,sans-serif;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#bar{position:fixed;left:50%;bottom:calc(12px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:center;padding:10px 16px;border-radius:24px;background:var(--pill);border:1px solid var(--line);backdrop-filter:blur(10px);width:max-content;max-width:94vw;font-size:13px;box-sizing:border-box}
+button,select,input[type=text]{font:inherit;color:var(--ink);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:999px;padding:6px 12px}
+button{cursor:pointer}button.on,button:hover{background:rgba(255,255,255,.16)}
+select{max-width:150px}input[type=text]{width:130px}
+label{display:flex;align-items:center;gap:6px}input[type=range]{width:80px;accent-color:#ff5fa2}
+#ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(10,5,20,.72);padding:20px;box-sizing:border-box}
+#ov.hide{display:none}
+#card{max-width:380px;text-align:center;display:flex;flex-direction:column;gap:12px;align-items:center}
+#card h1{font:400 34px Monoton,'Arial Black',sans-serif;margin:0;color:#ff5fa2}
+#msg{margin:0;line-height:1.5;opacity:.9;min-height:1.5em}
+#go{padding:14px 26px;font-size:17px;background:#1db954;color:#07130b;border-color:#1db954;font-weight:500}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ov"><div id="card"><h1>House Café</h1><p id="msg"></p><button id="go">Connect Spotify</button><button id="demo">Just look around</button></div></div>
+<div id="bar">
+  <button id="pv">⏮</button><button id="pp">⏯</button><button id="nx">⏭</button>
+  <select id="pl"><option value="">Your playlists…</option></select>
+  <input id="link" type="text" placeholder="Paste a Spotify link"><button id="lg">Play</button>
+  <span id="moods"><button data-m="midnight" class="on">Midnight</button> <button data-m="sunrise">Sunrise</button> <button data-m="deep">Deep</button></span>
+  <button id="tap" title="Tap along to the beat to sync the lights">Tap</button><b id="bv">124</b>
+  <label>Vol <input id="vol" type="range" min="0" max="1" step=".01" value=".8"></label>
+</div>
+<script>
+/* ===== 1. CONFIG — paste your Spotify app Client ID here ===== */
+const CLIENT_ID="PASTE_YOUR_SPOTIFY_CLIENT_ID";
+const REDIRECT=location.origin+location.pathname;
+const SCOPES="streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state playlist-read-private";
+
+/* ===== 2. Spotify auth (Authorization Code + PKCE) ===== */
+const LS=localStorage,$=id=>document.getElementById(id);
+const b64=b=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+const say=m=>$("msg").textContent=m;
+async function login(){
+  const v=b64(crypto.getRandomValues(new Uint8Array(48)));LS.setItem("hc_v",v);
+  const ch=b64(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v)));
+  location.href="https://accounts.spotify.com/authorize?"+new URLSearchParams({response_type:"code",client_id:CLIENT_ID,scope:SCOPES,redirect_uri:REDIRECT,code_challenge_method:"S256",code_challenge:ch});
+}
+async function tokReq(body){
+  const old=JSON.parse(LS.getItem("hc_tok")||"{}");
+  const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:CLIENT_ID,...body})});
+  const j=await r.json();if(!r.ok)throw j;
+  LS.setItem("hc_tok",JSON.stringify({a:j.access_token,r:j.refresh_token||old.r,e:Date.now()+j.expires_in*1000}));
+}
+async function token(){
+  let t=JSON.parse(LS.getItem("hc_tok")||"null");if(!t)return null;
+  if(t.e-60000<Date.now()){await tokReq({grant_type:"refresh_token",refresh_token:t.r});t=JSON.parse(LS.getItem("hc_tok"))}
+  return t.a;
+}
+async function api(path,opt={}){
+  const r=await fetch("https://api.spotify.com/v1"+path,{...opt,headers:{Authorization:"Bearer "+await token(),"Content-Type":"application/json"}});
+  return r.status===204?null:r.json().catch(()=>null);
+}
+
+/* ===== 3. Web Playback SDK ===== */
+let player,dev,cur,paused=true,npText="",art,artUrl,demo=false;
+window.onSpotifyWebPlaybackSDKReady=()=>{
+  player=new Spotify.Player({name:"House Café",getOAuthToken:cb=>token().then(cb),volume:+$("vol").value});
+  player.addListener("ready",async({device_id})=>{
+    dev=device_id;say("Connected. Press the button to step inside.");
+    const d=await api("/me/playlists?limit=50");
+    (d&&d.items||[]).filter(Boolean).forEach(p=>$("pl").add(new Option(p.name,p.uri)));
+  });
+  player.addListener("player_state_changed",s=>{
+    if(!s)return;cur=s.track_window.current_track;paused=s.paused;
+    if(cur){npText=cur.name+" — "+cur.artists.map(a=>a.name).join(", ");
+      const u=cur.album.images[0]&&cur.album.images[0].url;if(u&&u!==artUrl){artUrl=u;art=new Image();art.src=u}}
+  });
+  ["initialization_error","authentication_error","account_error","playback_error"].forEach(e=>player.addListener(e,({message})=>{
+    say(message+(e==="account_error"?" (Spotify Premium is required.)":""));$("ov").classList.remove("hide")}));
+  player.connect();
+};
+function loadSDK(){const s=document.createElement("script");s.src="https://sdk.scdn.co/spotify-player.js";document.head.appendChild(s)}
+function toUri(x){
+  x=x.trim();const m=x.match(/open\.spotify\.com\/(?:intl-\w+\/)?(playlist|album|track|artist)\/(\w+)/);
+  return m?`spotify:${m[1]}:${m[2]}`:(/^spotify:/.test(x)?x:null);
+}
+async function playUri(u){
+  if(!dev||!u)return;
+  await api("/me/player/play?device_id="+dev,{method:"PUT",body:JSON.stringify(/:track:/.test(u)?{uris:[u]}:{context_uri:u})});
+}
+
+/* ===== 4. Startup + controls ===== */
+(async()=>{
+  const p=new URLSearchParams(location.search);
+  if(p.get("code")){
+    try{await tokReq({grant_type:"authorization_code",code:p.get("code"),redirect_uri:REDIRECT,code_verifier:LS.getItem("hc_v")})}
+    catch(e){say("Login failed: "+(e.error_description||e.error||"unknown error"))}
+    history.replaceState({},"",REDIRECT);
+  }else if(p.get("error"))say("Spotify said: "+p.get("error"));
+  if(CLIENT_ID.startsWith("PASTE")){say("Add your Spotify Client ID at the top of index.html first. The README has the steps.");$("go").style.display="none";return}
+  if(LS.getItem("hc_tok")){$("go").textContent="Open the café";if(!$("msg").textContent)say("Connecting to Spotify…");loadSDK()}
+  else if(!$("msg").textContent)say("Log in with Spotify Premium to play music in the café.");
+})();
+$("go").onclick=()=>{
+  if(!LS.getItem("hc_tok"))return login();
+  if(player){player.activateElement();$("ov").classList.add("hide")}
+};
+$("demo").onclick=()=>{demo=true;$("ov").classList.add("hide")};
+$("pp").onclick=()=>{if(player)player.togglePlay();else demo=!demo};
+$("pv").onclick=()=>player&&player.previousTrack();
+$("nx").onclick=()=>player&&player.nextTrack();
+$("pl").onchange=e=>playUri(e.target.value);
+$("lg").onclick=()=>{const u=toUri($("link").value);u?playUri(u):say("That doesn’t look like a Spotify link.")};
+$("vol").oninput=e=>player&&player.setVolume(+e.target.value);
+addEventListener("keydown",e=>{if(e.code==="Space"&&e.target===document.body){e.preventDefault();$("pp").click()}});
+
+/* ===== 5. Scene ===== */
+const cv=$("c"),g=cv.getContext("2d");let W,H;
+function rs(){const d=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*d;cv.height=H*d;g.setTransform(d,0,0,d,0,0)}
+addEventListener("resize",rs);rs();
+const P={
+  midnight:{top:"#1a0b3a",bot:"#ff6a9a",a:"#ff5fa2",b:"#5ee7ff",wall:"#1b1030",sun:"#ffd2a8"},
+  sunrise:{top:"#3a1a4a",bot:"#ffb347",a:"#ffcf5a",b:"#ff6f61",wall:"#2a1424",sun:"#fff0c2"},
+  deep:{top:"#06142e",bot:"#1fb7a6",a:"#4df2c0",b:"#6f8bff",wall:"#0b1a2a",sun:"#c9fff1"}};
+let pal=P.midnight,bpm=124,anchor=0,taps=[];
+$("moods").onclick=e=>{const m=e.target.dataset.m;if(!m)return;pal=P[m];document.querySelectorAll("#moods button").forEach(b=>b.classList.toggle("on",b===e.target))};
+$("tap").onclick=()=>{
+  const n=performance.now();if(taps.length&&n-taps[taps.length-1]>2500)taps=[];taps.push(n);anchor=n/1000;
+  if(taps.length>=3){const iv=(taps[taps.length-1]-taps[0])/(taps.length-1);bpm=Math.max(70,Math.min(180,Math.round(60000/iv)));$("bv").textContent=bpm}
+};
+function rnd(s){return()=>(s=(s*16807)%2147483647)/2147483647}
+const R=rnd(42);
+const lay=[0,1].map(l=>{const b=[];let x=0;while(x<1){
+  const w=.04+R()*.06,h=(l?.2:.3)+R()*(l?.26:.3),cols=Math.max(1,Math.floor(w*40)),rows=Math.floor(h*14),wins=[];
+  for(let i=0;i<cols;i++)for(let j=0;j<rows;j++)if(R()>.35)wins.push({i,j,p:R()*6.28,c:R()});
+  b.push({x,w,h,cols,rows,wins});x+=w+R()*.01}return b});
+const rain=Array.from({length:80},()=>({x:R(),y:R(),v:.6+R()*.8,l:.03+R()*.04}));
+let ang=0,last=0;
+
+function frame(ts){
+  const t=ts/1000,dt=Math.min(.05,t-last);last=t;
+  const playing=demo||(cur&&!paused);
+  const bt=(t-anchor)*bpm/60,ph=((bt%1)+1)%1,ph2=(((bt+.5)%1)+1)%1;
+  let kp=.1+.06*Math.sin(t*2),hp=.15,bass=.1,v=i=>.1+.08*Math.sin(t*2+i*.5);
+  if(playing){kp=Math.exp(-ph*5);hp=.8*Math.exp(-ph2*9);bass=.3+.5*kp;
+    v=i=>(1-i/52)*(.3+.6*kp)*(.65+.35*Math.sin(t*3+i*.9));ang+=dt*3.5}else ang+=dt*.3;
+  const S=Math.min(W,H)/700+.35,port=W<H,wx=port?W*.05:W*.14,ww=W-wx*2,wy=H*.15,wh=H*.43;
+
+  g.fillStyle=pal.wall;g.fillRect(0,0,W,H);
+  let gr=g.createRadialGradient(W/2,wy+wh,0,W/2,wy+wh,Math.max(W,H)*.7);
+  gr.addColorStop(0,pal.bot+"55");gr.addColorStop(1,"transparent");g.fillStyle=gr;g.fillRect(0,0,W,H);
+
+  g.save();g.beginPath();g.roundRect(wx,wy,ww,wh,10);g.clip();
+  gr=g.createLinearGradient(0,wy,0,wy+wh);gr.addColorStop(0,pal.top);gr.addColorStop(1,pal.bot);
+  g.fillStyle=gr;g.fillRect(wx,wy,ww,wh);
+  const sr=wh*.24*(1+.05*kp),sx=wx+ww/2,sy=wy+wh*.6;
+  gr=g.createRadialGradient(sx,sy,sr*.2,sx,sy,sr*2.4);gr.addColorStop(0,pal.sun+"aa");gr.addColorStop(1,"transparent");
+  g.fillStyle=gr;g.fillRect(wx,wy,ww,wh);g.fillStyle=pal.sun;g.beginPath();g.arc(sx,sy,sr,0,7);g.fill();
+  const base=wy+wh*.9;
+  lay.forEach((L,l)=>L.forEach(b=>{
+    const bx=wx+b.x*ww,bw=b.w*ww,bh=b.h*wh;
+    g.fillStyle=l?"#0a0618":"rgba(24,12,52,.78)";g.fillRect(bx,base-bh,bw,bh);
+    const cw=bw/b.cols,rh=(bh-14)/Math.max(1,b.rows);
+    b.wins.forEach(w=>{if(Math.sin(t*.4+w.p*3)<-.2)return;
+      g.globalAlpha=Math.min(1,(.22+.8*kp)*(l?1:.6));g.fillStyle=w.c<.5?pal.a:w.c<.85?pal.b:pal.sun;
+      g.fillRect(bx+w.i*cw+cw*.25,base-bh+8+w.j*rh,cw*.5,rh*.5)});
+    g.globalAlpha=1}));
+  g.fillStyle="#0a0618";g.fillRect(wx,base,ww,wy+wh-base);
+  g.globalCompositeOperation="lighter";
+  const n=48,bw2=ww/n;gr=g.createLinearGradient(0,wy+wh,0,wy+wh*.45);gr.addColorStop(0,pal.a);gr.addColorStop(1,pal.b);
+  g.fillStyle=gr;g.globalAlpha=.75;
+  for(let i=0;i<n;i++){const h=Math.max(3,v(i)*wh*.5);g.fillRect(wx+i*bw2+bw2*.18,wy+wh-h,bw2*.64,h)}
+  g.globalAlpha=1;g.globalCompositeOperation="source-over";
+  g.strokeStyle="rgba(200,220,255,.28)";g.lineWidth=1;g.beginPath();
+  rain.forEach(d=>{d.y+=dt*d.v*.9;if(d.y>1){d.y=-.1;d.x=R()}const x=wx+d.x*ww,y=wy+d.y*wh;g.moveTo(x,y);g.lineTo(x-2,y+d.l*wh)});g.stroke();
+  g.restore();
+  g.strokeStyle="#08040f";g.lineWidth=10;g.beginPath();g.roundRect(wx,wy,ww,wh,10);g.stroke();
+  g.lineWidth=6;g.beginPath();g.moveTo(wx+ww/3,wy);g.lineTo(wx+ww/3,wy+wh);g.moveTo(wx+ww*2/3,wy);g.lineTo(wx+ww*2/3,wy+wh);g.moveTo(wx,wy+wh*.45);g.lineTo(wx+ww,wy+wh*.45);g.stroke();
+  g.fillStyle="#120a1f";g.fillRect(wx-14,wy+wh+3,ww+28,12);
+
+  const dy=H*.68;g.fillStyle="#150b24";g.fillRect(0,dy,W,H-dy);
+  g.fillStyle=pal.a;g.globalAlpha=.35+.4*kp;g.fillRect(0,dy,W,2);g.globalAlpha=1;
+
+  // turntable (label shows the album art)
+  const R0=Math.min(W*.2,170*S),tx=W*(port?.42:.4),ty=H*.83;
+  g.fillStyle="#1c1230";g.beginPath();g.roundRect(tx-R0*1.3,ty-R0*.5,R0*2.6,R0*.95,12);g.fill();
+  g.save();g.translate(tx,ty);g.scale(1,.3);
+  g.fillStyle="#0b0713";g.beginPath();g.arc(0,0,R0*(1+.015*kp),0,7);g.fill();
+  g.strokeStyle="rgba(255,255,255,.08)";g.lineWidth=1.5;
+  for(let r=.4;r<.95;r+=.1){g.beginPath();g.arc(0,0,R0*r,0,7);g.stroke()}
+  g.fillStyle=pal.a;g.beginPath();g.arc(0,0,R0*.3,0,7);g.fill();
+  g.rotate(ang);
+  if(art&&art.complete&&art.naturalWidth){g.save();g.beginPath();g.arc(0,0,R0*.3,0,7);g.clip();g.drawImage(art,-R0*.3,-R0*.3,R0*.6,R0*.6);g.restore()}
+  g.strokeStyle="#fff";g.lineWidth=4;g.beginPath();g.moveTo(R0*.12,0);g.lineTo(R0*.3,0);g.stroke();
+  g.restore();
+  g.strokeStyle="#cfc3e6";g.lineWidth=3;g.beginPath();g.moveTo(tx+R0*1.1,ty-R0*.3);g.lineTo(tx+R0*.35,ty+R0*.02+kp*2);g.stroke();
+  g.fillStyle="#cfc3e6";g.beginPath();g.arc(tx+R0*1.1,ty-R0*.3,5,0,7);g.fill();
+
+  // coffee cup + steam
+  const cx=W*(port?.82:.7),cy=H*.78;
+  g.fillStyle="#2a1c40";g.beginPath();g.ellipse(cx,cy,48*S,11*S,0,0,7);g.fill();
+  g.fillStyle="#efe4ff";g.beginPath();g.moveTo(cx-30*S,cy-42*S);g.lineTo(cx+30*S,cy-42*S);g.lineTo(cx+22*S,cy);g.lineTo(cx-22*S,cy);g.closePath();g.fill();
+  g.strokeStyle="#efe4ff";g.lineWidth=5*S;g.beginPath();g.arc(cx+32*S,cy-24*S,10*S,-1.5,1.5);g.stroke();
+  g.fillStyle="#3b2214";g.beginPath();g.ellipse(cx,cy-42*S,30*S,6*S,0,0,7);g.fill();
+  g.lineWidth=2.5;g.lineCap="round";
+  for(let k=0;k<5;k++){g.strokeStyle=`rgba(255,255,255,${.22+bass*.3})`;g.beginPath();
+    const hg=(60+bass*80)*S;
+    for(let h=0;h<=hg;h+=4){const x=cx+(k-2)*9*S+Math.sin(t*2+k+h*.07)*6*S,y=cy-46*S-h;h?g.lineTo(x,y):g.moveTo(x,y)}g.stroke()}
+
+  // cat
+  const kx=W*(port?.14:.13),ky=H*.745,bob=kp*3*S;
+  g.fillStyle="#07030d";g.strokeStyle=pal.a+"88";g.lineWidth=1.5;
+  g.beginPath();g.ellipse(kx,ky-26*S,30*S,26*S,0,0,7);g.fill();g.stroke();
+  g.beginPath();g.arc(kx+16*S,ky-58*S+bob,16*S,0,7);g.fill();g.stroke();
+  [[6,-70],[24,-70]].forEach(([ex,ey])=>{g.beginPath();g.moveTo(kx+ex*S,ky+ey*S+bob);g.lineTo(kx+(ex+4)*S,ky+(ey-12)*S+bob);g.lineTo(kx+(ex+11)*S,ky+(ey+3)*S+bob);g.fill()});
+  g.beginPath();g.moveTo(kx-28*S,ky-12*S);g.bezierCurveTo(kx-55*S,ky-10*S,kx-50*S,ky-50*S+Math.sin(t*2)*8*S,kx-36*S,ky-52*S);
+  g.lineWidth=7*S;g.strokeStyle="#07030d";g.stroke();
+  g.strokeStyle=pal.sun;g.lineWidth=1.5;
+  [11,22].forEach(o=>{g.beginPath();g.arc(kx+o*S,ky-58*S+bob,3*S,.2,Math.PI-.2);g.stroke()});
+
+  // string lights
+  const N=22,wy2=i=>H*.02+Math.abs(Math.sin(i/N*Math.PI*3))*H*.025;
+  g.strokeStyle="#08040f";g.lineWidth=1.5;g.beginPath();
+  for(let i=0;i<=N;i++){const x=W*i/N;i?g.lineTo(x,wy2(i)):g.moveTo(x,wy2(i))}g.stroke();
+  for(let i=0;i<=N;i++){const c=[pal.a,pal.b,pal.sun][i%3],q=i%2?hp:kp;
+    g.fillStyle=c;g.shadowColor=c;g.shadowBlur=8+16*q;g.beginPath();g.arc(W*i/N,wy2(i)+6,3.5+2*q,0,7);g.fill()}
+  // neon sign + now playing
+  g.textAlign="center";g.textBaseline="middle";
+  g.shadowBlur=18+34*kp;g.shadowColor=pal.a;g.fillStyle=pal.a;
+  g.font=`${Math.min(W*.075,58)}px Monoton,'Arial Black',sans-serif`;
+  g.globalAlpha=.88+.12*Math.sin(t*23)*(1-kp);g.fillText("HOUSE CAFÉ",W/2,H*.097);
+  g.globalAlpha=1;g.shadowBlur=0;
+  g.font="500 15px 'DM Sans',system-ui,sans-serif";g.fillStyle=pal.sun;
+  g.fillText(npText||(demo?"demo mode · tap along to sync":""),W/2,H*.637,W*.82);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

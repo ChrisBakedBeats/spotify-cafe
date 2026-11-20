@@ -38,3 +38,18 @@ A single static page (`index.html`) that logs into Spotify (Authorization Code +
 5. Push (or run the workflow from the **Actions** tab). The deployed URL appears in the workflow summary.
 
 If the build fails with "Add a repository variable", step 3 is missing. If Spotify says *INVALID_CLIENT: Invalid redirect URI*, the address in step 4 doesn't match the page's URL character for character.
+
+## Rooms
+
+Three rooms share the same Spotify login, Client ID, and redirect URI:
+
+| Room | Link | Look | Default mood / BPM |
+|------|------|------|--------------------|
+| Café | `#cafe` | rainy window, cat, coffee, turntable | Midnight · 122 |
+| Rooftop | `#rooftop` | sunrise rays driven by the spectrum, skyline, speakers | Sunrise · 118 |
+| Club | `#club` | lasers, LED-wall equalizer, floor grid, crowd, strobes | Neon · 128 |
+
+- Switch rooms with the buttons, or open a room directly with its `#` link.
+- Each room **remembers the last playlist or link you played in it** (in your browser). Switching to a room starts its music.
+- Mood buttons still re-color any room, and **Tap** re-syncs the pulses.
+- To add a room: write a `function myRoom(t,dt,kp,hp,bass,v)` that draws on the canvas, add it to the `rooms` table, and add a button to `#rooms`.

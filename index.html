@@ -26,10 +26,11 @@ label{display:flex;align-items:center;gap:6px}input[type=range]{width:80px;accen
 <canvas id="c"></canvas>
 <div id="ov"><div id="card"><h1>House Café</h1><p id="msg"></p><button id="go">Connect Spotify</button><button id="demo">Just look around</button></div></div>
 <div id="bar">
+  <span id="rooms"><button data-r="cafe" class="on">Café</button> <button data-r="rooftop">Rooftop</button> <button data-r="club">Club</button></span>
   <button id="pv">⏮</button><button id="pp">⏯</button><button id="nx">⏭</button>
   <select id="pl"><option value="">Your playlists…</option></select>
   <input id="link" type="text" placeholder="Paste a Spotify link"><button id="lg">Play</button>
-  <span id="moods"><button data-m="midnight" class="on">Midnight</button> <button data-m="sunrise">Sunrise</button> <button data-m="deep">Deep</button></span>
+  <span id="moods"><button data-m="midnight" class="on">Midnight</button> <button data-m="sunrise">Sunrise</button> <button data-m="deep">Deep</button> <button data-m="neon">Neon</button></span>
   <button id="tap" title="Tap along to the beat to sync the lights">Tap</button><b id="bv">124</b>
   <label>Vol <input id="vol" type="range" min="0" max="1" step=".01" value=".8"></label>
 </div>
@@ -72,6 +73,7 @@ window.onSpotifyWebPlaybackSDKReady=()=>{
     dev=device_id;say("Connected. Press the button to step inside.");
     const d=await api("/me/playlists?limit=50");
     (d&&d.items||[]).filter(Boolean).forEach(p=>$("pl").add(new Option(p.name,p.uri)));
+    $("pl").value=LS.getItem("hc_pl_"+room)||"";
   });
   player.addListener("player_state_changed",s=>{
     if(!s)return;cur=s.track_window.current_track;paused=s.paused;
@@ -88,7 +90,7 @@ function toUri(x){
   return m?`spotify:${m[1]}:${m[2]}`:(/^spotify:/.test(x)?x:null);
 }
 async function playUri(u){
-  if(!dev||!u)return;
+  if(!dev||!u)return;LS.setItem("hc_pl_"+room,u);
   await api("/me/player/play?device_id="+dev,{method:"PUT",body:JSON.stringify(/:track:/.test(u)?{uris:[u]}:{context_uri:u})});
 }
 
@@ -124,7 +126,8 @@ addEventListener("resize",rs);rs();
 const P={
   midnight:{top:"#1a0b3a",bot:"#ff6a9a",a:"#ff5fa2",b:"#5ee7ff",wall:"#1b1030",sun:"#ffd2a8"},
   sunrise:{top:"#3a1a4a",bot:"#ffb347",a:"#ffcf5a",b:"#ff6f61",wall:"#2a1424",sun:"#fff0c2"},
-  deep:{top:"#06142e",bot:"#1fb7a6",a:"#4df2c0",b:"#6f8bff",wall:"#0b1a2a",sun:"#c9fff1"}};
+  deep:{top:"#06142e",bot:"#1fb7a6",a:"#4df2c0",b:"#6f8bff",wall:"#0b1a2a",sun:"#c9fff1"},
+  neon:{top:"#0a0014",bot:"#7a00ff",a:"#ff2bd6",b:"#00f0ff",wall:"#08000f",sun:"#ffffff"}};
 let pal=P.midnight,bpm=124,anchor=0,taps=[];
 $("moods").onclick=e=>{const m=e.target.dataset.m;if(!m)return;pal=P[m];document.querySelectorAll("#moods button").forEach(b=>b.classList.toggle("on",b===e.target))};
 $("tap").onclick=()=>{
@@ -147,6 +150,11 @@ function frame(ts){
   let kp=.1+.06*Math.sin(t*2),hp=.15,bass=.1,v=i=>.1+.08*Math.sin(t*2+i*.5);
   if(playing){kp=Math.exp(-ph*5);hp=.8*Math.exp(-ph2*9);bass=.3+.5*kp;
     v=i=>(1-i/52)*(.3+.6*kp)*(.65+.35*Math.sin(t*3+i*.9));ang+=dt*3.5}else ang+=dt*.3;
+  rooms[room].fn(t,dt,kp,hp,bass,v);requestAnimationFrame(frame);
+}
+
+/* --- Café room --- */
+function cafe(t,dt,kp,hp,bass,v){
   const S=Math.min(W,H)/700+.35,port=W<H,wx=port?W*.05:W*.14,ww=W-wx*2,wy=H*.15,wh=H*.43;
 
   g.fillStyle=pal.wall;g.fillRect(0,0,W,H);
@@ -235,8 +243,117 @@ function frame(ts){
   g.globalAlpha=1;g.shadowBlur=0;
   g.font="500 15px 'DM Sans',system-ui,sans-serif";g.fillStyle=pal.sun;
   g.fillText(npText||(demo?"demo mode · tap along to sync":""),W/2,H*.637,W*.82);
-  requestAnimationFrame(frame);
 }
+
+/* ===== Rooms ===== */
+let gr2;
+function sign(txt,y,kp,t,size){g.textAlign="center";g.textBaseline="middle";g.shadowBlur=18+34*kp;g.shadowColor=pal.a;g.fillStyle=pal.a;
+  g.font=`${size}px Monoton,'Arial Black',sans-serif`;g.globalAlpha=.88+.12*Math.sin(t*23)*(1-kp);g.fillText(txt,W/2,y);g.globalAlpha=1;g.shadowBlur=0}
+function np(y){g.textAlign="center";g.textBaseline="middle";g.font="500 15px 'DM Sans',system-ui,sans-serif";g.fillStyle=pal.sun;
+  g.fillText(npText||(demo?"demo mode · tap along to sync":""),W/2,y,W*.82)}
+function bulbs(y0,amp,N,kp,hp){
+  const pt=i=>[W*.03+W*.94*i/N,y0+amp*Math.sin(i/N*Math.PI)];
+  g.strokeStyle="#08040f";g.lineWidth=1.5;g.beginPath();
+  for(let i=0;i<=N;i++){const[x,y]=pt(i);i?g.lineTo(x,y):g.moveTo(x,y)}g.stroke();
+  for(let i=0;i<=N;i++){const[x,y]=pt(i),c=[pal.a,pal.b,pal.sun][i%3],q=i%2?hp:kp;
+    g.fillStyle=c;g.shadowColor=c;g.shadowBlur=8+16*q;g.beginPath();g.arc(x,y+6,3.5+2*q,0,7);g.fill()}
+  g.shadowBlur=0}
+function deck(tx,ty,R0,kp){
+  g.fillStyle="#1c1230";g.beginPath();g.roundRect(tx-R0*1.3,ty-R0*.5,R0*2.6,R0*.95,12);g.fill();
+  g.save();g.translate(tx,ty);g.scale(1,.3);
+  g.fillStyle="#0b0713";g.beginPath();g.arc(0,0,R0*(1+.015*kp),0,7);g.fill();
+  g.strokeStyle="rgba(255,255,255,.08)";g.lineWidth=1.5;
+  for(let r=.4;r<.95;r+=.1){g.beginPath();g.arc(0,0,R0*r,0,7);g.stroke()}
+  g.fillStyle=pal.a;g.beginPath();g.arc(0,0,R0*.3,0,7);g.fill();g.rotate(ang);
+  if(art&&art.complete&&art.naturalWidth){g.save();g.beginPath();g.arc(0,0,R0*.3,0,7);g.clip();g.drawImage(art,-R0*.3,-R0*.3,R0*.6,R0*.6);g.restore()}
+  g.strokeStyle="#fff";g.lineWidth=4;g.beginPath();g.moveTo(R0*.12,0);g.lineTo(R0*.3,0);g.stroke();g.restore();
+  g.strokeStyle="#cfc3e6";g.lineWidth=3;g.beginPath();g.moveTo(tx+R0*1.1,ty-R0*.3);g.lineTo(tx+R0*.35,ty+R0*.02+kp*2);g.stroke();
+  g.fillStyle="#cfc3e6";g.beginPath();g.arc(tx+R0*1.1,ty-R0*.3,5,0,7);g.fill()}
+function skyline(base,hs,t,kp){
+  lay.forEach((L,l)=>L.forEach(b=>{
+    const bx=b.x*W,bw=b.w*W,bh=b.h*hs;
+    g.fillStyle=l?"#0a0618":"rgba(24,12,52,.8)";g.fillRect(bx,base-bh,bw,bh+2);
+    const cw=bw/b.cols,rh=(bh-14)/Math.max(1,b.rows);
+    b.wins.forEach(w=>{if(Math.sin(t*.4+w.p*3)<-.2)return;
+      g.globalAlpha=Math.min(1,(.22+.8*kp)*(l?1:.6));g.fillStyle=w.c<.5?pal.a:w.c<.85?pal.b:pal.sun;
+      g.fillRect(bx+w.i*cw+cw*.25,base-bh+8+w.j*rh,cw*.5,rh*.5)});g.globalAlpha=1}))}
+
+/* --- Rooftop: sunrise rays driven by the spectrum --- */
+const stars=Array.from({length:70},()=>({x:R(),y:R()*.5,p:R()*6.28,s:1+R()*1.5}));
+function rooftop(t,dt,kp,hp,bass,v){
+  const S=Math.min(W,H)/700+.35,port=W<H;
+  let gr=g.createLinearGradient(0,0,0,H*.68);gr.addColorStop(0,pal.top);gr.addColorStop(1,pal.bot);
+  g.fillStyle=gr;g.fillRect(0,0,W,H);
+  g.fillStyle="#fff";stars.forEach(s=>{g.globalAlpha=.25+.5*Math.abs(Math.sin(t*.8+s.p));g.fillRect(s.x*W,s.y*H,s.s,s.s)});g.globalAlpha=1;
+  const sx=W/2,sy=H*.5,sr=Math.min(W,H)*.1*(1+.05*kp);
+  g.globalCompositeOperation="lighter";g.lineCap="round";g.lineWidth=Math.max(2,W/220);
+  for(let i=0;i<48;i++){const a=Math.PI+(i+.5)/48*Math.PI,c=Math.cos(a),s=Math.sin(a),L=sr*1.4+v(i)*H*.3;
+    g.strokeStyle=i%2?pal.a:pal.b;g.globalAlpha=.5;g.beginPath();g.moveTo(sx+c*sr*1.2,sy+s*sr*1.2);g.lineTo(sx+c*L,sy+s*L);g.stroke()}
+  g.globalAlpha=1;g.globalCompositeOperation="source-over";
+  gr=g.createRadialGradient(sx,sy,sr*.3,sx,sy,sr*2.6);gr.addColorStop(0,pal.sun+"cc");gr.addColorStop(1,"transparent");g.fillStyle=gr;g.fillRect(0,0,W,H);
+  g.fillStyle=pal.sun;g.beginPath();g.arc(sx,sy,sr,0,7);g.fill();
+  g.fillStyle=pal.top+"aa";
+  for(let i=0;i<3;i++){const x=((t*(6+i*4)+i*W*.4)%(W*1.4))-W*.2;g.beginPath();g.ellipse(x,H*(.13+i*.07),110*S,16*S,0,0,7);g.fill()}
+  skyline(H*.66,H*.4,t,kp);
+  g.fillStyle=pal.wall;g.fillRect(0,H*.66,W,H*.34);
+  g.fillStyle=pal.a;g.globalAlpha=.4+.4*kp;g.fillRect(0,H*.66,W,3);g.globalAlpha=1;
+  [port?.13:.2,port?.87:.8].forEach(fx=>{const x=W*fx,w=90*S,h=170*S,y=H*.97-h;
+    g.fillStyle="#0b0614";g.beginPath();g.roundRect(x-w/2,y,w,h,8);g.fill();g.strokeStyle=pal.b+"99";g.lineWidth=2;g.stroke();
+    g.fillStyle="#1a1030";g.beginPath();g.arc(x,y+h*.28,14*S,0,7);g.fill();
+    g.beginPath();g.arc(x,y+h*.68,30*S*(1+.1*kp),0,7);g.fill();g.strokeStyle=pal.a;g.stroke()});
+  deck(W/2,H*.86,Math.min(W*.17,140*S),kp);
+  bulbs(H*.17,H*.035,16,kp,hp);
+  sign("ROOFTOP",H*.09,kp,t,Math.min(W*.085,64));np(H*.715);
+}
+
+/* --- Club: lasers, LED wall, floor grid, crowd --- */
+function club(t,dt,kp,hp,bass,v){
+  const S=Math.min(W,H)/700+.35,hz=H*.62;let gr;
+  g.fillStyle=pal.wall;g.fillRect(0,0,W,H);
+  g.globalCompositeOperation="lighter";g.lineCap="round";
+  for(let k=0;k<6;k++){const x=W*(.1+.8*k/5),a=Math.sin(t*.9+k*1.3)*.7+(k%2?.25:-.25);
+    g.strokeStyle=k%2?pal.a:pal.b;g.globalAlpha=.12+.5*kp;g.lineWidth=2+3*kp;
+    g.beginPath();g.moveTo(x,0);g.lineTo(x+Math.sin(a)*H*1.3,Math.cos(a)*H*1.3);g.stroke()}
+  g.globalAlpha=1;g.globalCompositeOperation="source-over";
+  const sw=Math.min(W*.8,760*S),sh=H*.28,sx0=(W-sw)/2,sy0=H*.17,nb=32,bw=sw/nb,sg=sh/12;
+  g.fillStyle="#05000d";g.fillRect(sx0,sy0,sw,sh);
+  for(let i=0;i<nb;i++){const n=Math.round(v(i*1.45)*12);
+    for(let j=0;j<n;j++){g.fillStyle=j<6?pal.b:j<10?pal.a:"#fff";g.fillRect(sx0+i*bw+2,sy0+sh-(j+1)*sg+1,bw-4,sg-3)}}
+  g.strokeStyle=pal.a;g.lineWidth=3;g.shadowColor=pal.a;g.shadowBlur=14+14*kp;g.strokeRect(sx0,sy0,sw,sh);g.shadowBlur=0;
+  gr=g.createLinearGradient(0,hz,0,H);gr.addColorStop(0,"#05000d");gr.addColorStop(1,pal.wall);g.fillStyle=gr;g.fillRect(0,hz,W,H-hz);
+  g.strokeStyle=pal.b;g.globalAlpha=.25+.4*kp;g.lineWidth=1.5;g.beginPath();
+  for(let i=-9;i<=9;i++){g.moveTo(W/2,hz);g.lineTo(W/2+i*W*.14,H)}
+  const off=(t*.35)%1;for(let k=0;k<10;k++){const y=hz+(H-hz)*Math.pow((k+off)/10,2);g.moveTo(0,y);g.lineTo(W,y)}
+  g.stroke();g.globalAlpha=1;
+  [0,1].forEach(i=>{const fx=W*(.3+.4*i)+Math.sin(t*.3+i*3)*W*.12;
+    gr=g.createRadialGradient(fx,H*.7,0,fx,H*.7,W*.35);gr.addColorStop(0,pal.a+"28");gr.addColorStop(1,"transparent");g.fillStyle=gr;g.fillRect(0,hz-40,W,H)});
+  const R0=Math.min(W*.12,110*S);
+  g.fillStyle="#0d0420";g.beginPath();g.roundRect(W/2-R0*1.9,H*.7,R0*3.8,H*.2,10);g.fill();
+  g.strokeStyle=pal.a;g.lineWidth=2;g.shadowColor=pal.a;g.shadowBlur=10;g.stroke();g.shadowBlur=0;
+  deck(W/2,H*.8,R0,kp);
+  g.lineWidth=2;
+  for(let i=0;i<14;i++){const x=(i+.5)/14*W,b=kp*14*S*(.6+.4*Math.sin(i*2.1)),y=H*.97-(i%3)*10*S-b;
+    g.fillStyle="#05000d";g.strokeStyle=pal.a+"88";
+    g.beginPath();g.ellipse(x,y+26*S,32*S,26*S,0,0,7);g.fill();g.stroke();
+    g.beginPath();g.arc(x,y-4*S,16*S,0,7);g.fill();g.stroke();
+    if(i%4===1){g.strokeStyle="#05000d";g.lineWidth=7*S;g.beginPath();g.moveTo(x+14*S,y+10*S);g.lineTo(x+26*S,y-40*S-b);g.stroke();g.lineWidth=2}}
+  g.fillStyle="#fff";g.globalAlpha=Math.max(0,kp-.85)*.7;g.fillRect(0,0,W,H);g.globalAlpha=1;
+  sign("AFTER HOURS",H*.1,kp,t,Math.min(W*.065,52));np(sy0+sh+22*S);
+}
+
+/* --- Room registry, switching, hash links (#cafe, #rooftop, #club) --- */
+const rooms={cafe:{fn:cafe,mood:"midnight",bpm:122},rooftop:{fn:rooftop,mood:"sunrise",bpm:118},club:{fn:club,mood:"neon",bpm:128}};
+let room="cafe";
+function setRoom(r){
+  if(!rooms[r])r="cafe";room=r;const cfg=rooms[r];pal=P[cfg.mood];bpm=cfg.bpm;$("bv").textContent=bpm;
+  document.querySelectorAll("#rooms button").forEach(b=>b.classList.toggle("on",b.dataset.r===r));
+  document.querySelectorAll("#moods button").forEach(b=>b.classList.toggle("on",b.dataset.m===cfg.mood));
+  $("pl").value=LS.getItem("hc_pl_"+r)||"";
+}
+$("rooms").onclick=e=>{const r=e.target.dataset.r;if(!r)return;location.hash=r;setRoom(r);const u=LS.getItem("hc_pl_"+r);if(u&&dev)playUri(u)};
+addEventListener("hashchange",()=>setRoom(location.hash.slice(1)));
+setRoom(location.hash.slice(1));
+
 requestAnimationFrame(frame);
 </script>
 </body>

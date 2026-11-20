@@ -53,3 +53,10 @@ Three rooms share the same Spotify login, Client ID, and redirect URI:
 - Each room **remembers the last playlist or link you played in it** (in your browser). Switching to a room starts its music.
 - Mood buttons still re-color any room, and **Tap** re-syncs the pulses.
 - To add a room: write a `function myRoom(t,dt,kp,hp,bass,v)` that draws on the canvas, add it to the `rooms` table, and add a button to `#rooms`.
+
+## Lofi controls
+
+- **Look** – film grain, vignette, warm grade, and a slight camera sway. Slide to 0 for the clean version. **Pixel** adds a chunky low-res mode.
+- **Chill ↔ Club** – scales the pulses, lasers, strobes, and turntable speed. Low is cozy, high is the full show.
+- **Ambience** – rain, vinyl crackle, fire, and café murmur (with the occasional cup clink). These are synthesized in the page and mixed over Spotify, so they don't depend on the music source. Browsers only start audio after a click or tap, so saved ambience levels begin on your first interaction.
+- All of these settings are remembered in your browser.

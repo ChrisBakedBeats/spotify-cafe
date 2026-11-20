@@ -20,6 +20,8 @@ label{display:flex;align-items:center;gap:6px}input[type=range]{width:80px;accen
 #card h1{font:400 34px Monoton,'Arial Black',sans-serif;margin:0;color:#ff5fa2}
 #msg{margin:0;line-height:1.5;opacity:.9;min-height:1.5em}
 #go{padding:14px 26px;font-size:17px;background:#1db954;color:#07130b;border-color:#1db954;font-weight:500}
+#amb{position:fixed;right:14px;display:flex;flex-direction:column;gap:8px;padding:12px 16px;border-radius:18px;background:var(--pill);border:1px solid var(--line);backdrop-filter:blur(10px);font-size:13px}
+#amb[hidden]{display:none}#amb label{justify-content:space-between}
 </style>
 </head>
 <body>
@@ -32,7 +34,17 @@ label{display:flex;align-items:center;gap:6px}input[type=range]{width:80px;accen
   <input id="link" type="text" placeholder="Paste a Spotify link"><button id="lg">Play</button>
   <span id="moods"><button data-m="midnight" class="on">Midnight</button> <button data-m="sunrise">Sunrise</button> <button data-m="deep">Deep</button> <button data-m="neon">Neon</button></span>
   <button id="tap" title="Tap along to the beat to sync the lights">Tap</button><b id="bv">124</b>
+  <label title="Film grain, vignette and warm tone">Look <input id="look" type="range" min="0" max="1" step=".01" value=".6"></label>
+  <button id="pix" title="Chunky low-res mode">Pixel</button>
+  <label title="Softens pulses, strobes and lasers">Chill <input id="en" type="range" min="0" max="1" step=".01" value=".65"> Club</label>
+  <button id="ambb">Ambience</button>
   <label>Vol <input id="vol" type="range" min="0" max="1" step=".01" value=".8"></label>
+</div>
+<div id="amb" hidden><b>Ambience</b>
+  <label>🌧 Rain <input type="range" data-k="rain" min="0" max="1" step=".01" value="0"></label>
+  <label>💿 Vinyl <input type="range" data-k="vinyl" min="0" max="1" step=".01" value="0"></label>
+  <label>🔥 Fire <input type="range" data-k="fire" min="0" max="1" step=".01" value="0"></label>
+  <label>☕ Café <input type="range" data-k="cafe" min="0" max="1" step=".01" value="0"></label>
 </div>
 <script>
 /* ===== 1. CONFIG — paste your Spotify app Client ID here ===== */
@@ -120,8 +132,8 @@ $("vol").oninput=e=>player&&player.setVolume(+e.target.value);
 addEventListener("keydown",e=>{if(e.code==="Space"&&e.target===document.body){e.preventDefault();$("pp").click()}});
 
 /* ===== 5. Scene ===== */
-const cv=$("c"),g=cv.getContext("2d");let W,H;
-function rs(){const d=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*d;cv.height=H*d;g.setTransform(d,0,0,d,0,0)}
+const cv=$("c"),G=cv.getContext("2d");let g=G,W,H;
+function rs(){const d=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*d;cv.height=H*d;G.setTransform(d,0,0,d,0,0)}
 addEventListener("resize",rs);rs();
 const P={
   midnight:{top:"#1a0b3a",bot:"#ff6a9a",a:"#ff5fa2",b:"#5ee7ff",wall:"#1b1030",sun:"#ffd2a8"},
@@ -149,8 +161,15 @@ function frame(ts){
   const bt=(t-anchor)*bpm/60,ph=((bt%1)+1)%1,ph2=(((bt+.5)%1)+1)%1;
   let kp=.1+.06*Math.sin(t*2),hp=.15,bass=.1,v=i=>.1+.08*Math.sin(t*2+i*.5);
   if(playing){kp=Math.exp(-ph*5);hp=.8*Math.exp(-ph2*9);bass=.3+.5*kp;
-    v=i=>(1-i/52)*(.3+.6*kp)*(.65+.35*Math.sin(t*3+i*.9));ang+=dt*3.5}else ang+=dt*.3;
-  rooms[room].fn(t,dt,kp,hp,bass,v);requestAnimationFrame(frame);
+    v=i=>(1-i/52)*(.3+.6*kp)*(.65+.35*Math.sin(t*3+i*.9));ang+=dt*3.5*(.4+.6*energy);kp*=.2+.8*energy;hp*=.2+.8*energy;bass*=.5+.5*energy;const v0=v;v=i=>v0(i)*(.5+.5*energy)}else ang+=dt*.3;
+  if(pix){const w=Math.ceil(W/PX),h=Math.ceil(H/PX);if(oc.width!==w||oc.height!==h){oc.width=w;oc.height=h}O.setTransform(1/PX,0,0,1/PX,0,0)}
+  g=pix?O:G;g.save();
+  g.translate(W/2+Math.sin(t*.3)*4*look,H/2+Math.cos(t*.23)*3*look);g.scale(1.02,1.02);g.translate(-W/2,-H/2);
+  rooms[room].fn(t,dt,kp,hp,bass,v);
+  g.restore();
+  if(pix){G.imageSmoothingEnabled=false;G.drawImage(oc,0,0,W,H)}
+  g=G;post();
+  requestAnimationFrame(frame);
 }
 
 /* --- Café room --- */
@@ -353,6 +372,65 @@ function setRoom(r){
 $("rooms").onclick=e=>{const r=e.target.dataset.r;if(!r)return;location.hash=r;setRoom(r);const u=LS.getItem("hc_pl_"+r);if(u&&dev)playUri(u)};
 addEventListener("hashchange",()=>setRoom(location.hash.slice(1)));
 setRoom(location.hash.slice(1));
+
+/* ===== Lofi layer: warm look, chill↔club slider, ambient mixer ===== */
+let look=.6,pix=false,energy=.65;const PX=3;
+const ambLvl={rain:0,vinyl:0,fire:0,cafe:0},AMB_SCALE={rain:.4,vinyl:.9,fire:.8,cafe:.9};
+const oc=document.createElement("canvas"),O=oc.getContext("2d");
+// film grain tile
+const gcv=document.createElement("canvas");gcv.width=gcv.height=160;
+{const c=gcv.getContext("2d"),im=c.createImageData(160,160);
+ for(let i=0;i<im.data.length;i+=4){const n=Math.random()*255;im.data[i]=im.data[i+1]=im.data[i+2]=n;im.data[i+3]=255}c.putImageData(im,0,0)}
+const gpat=G.createPattern(gcv,"repeat");
+function post(){
+  if(look<=0)return;
+  G.save();
+  G.globalCompositeOperation="soft-light";G.globalAlpha=.5*look;G.fillStyle="#ff9a55";G.fillRect(0,0,W,H);
+  G.globalCompositeOperation="source-over";G.globalAlpha=1;
+  const vg=G.createRadialGradient(W/2,H/2,Math.min(W,H)*.35,W/2,H/2,Math.max(W,H)*.75);
+  vg.addColorStop(0,"rgba(0,0,0,0)");vg.addColorStop(1,`rgba(8,2,16,${.6*look})`);
+  G.fillStyle=vg;G.fillRect(0,0,W,H);
+  G.globalAlpha=.09*look;G.translate((Math.random()*160)|0,(Math.random()*160)|0);
+  G.fillStyle=gpat;G.fillRect(-160,-160,W+160,H+160);
+  G.restore();
+}
+// saved settings
+try{const s=JSON.parse(LS.getItem("hc_set")||"null");
+  if(s){look=s.look??look;pix=!!s.pix;energy=s.energy??energy;Object.assign(ambLvl,s.amb||{})}}catch(e){}
+const save=()=>LS.setItem("hc_set",JSON.stringify({look,pix,energy,amb:ambLvl}));
+$("look").value=look;$("en").value=energy;$("pix").classList.toggle("on",pix);
+document.querySelectorAll("#amb input").forEach(i=>i.value=ambLvl[i.dataset.k]);
+$("look").oninput=e=>{look=+e.target.value;save()};
+$("en").oninput=e=>{energy=+e.target.value;save()};
+$("pix").onclick=e=>{pix=!pix;e.target.classList.toggle("on",pix);save()};
+$("ambb").onclick=()=>{const a=$("amb");a.hidden=!a.hidden;a.style.bottom=($("bar").offsetHeight+22)+"px"};
+
+// ambient layers: synthesized in the page, so they mix with Spotify without touching it
+let ac2;const ambG={};
+function apply(k){if(ac2&&ambG[k])ambG[k].gain.setTargetAtTime(Math.pow(ambLvl[k],1.5)*AMB_SCALE[k],ac2.currentTime,.1)}
+function clink(){const t=ac2.currentTime,f=2300+Math.random()*1800;
+  [1,1.5].forEach((m,i)=>{const o=ac2.createOscillator(),gn=ac2.createGain();o.frequency.value=f*m;
+    gn.gain.setValueAtTime(.0001,t);gn.gain.linearRampToValueAtTime(.05*ambLvl.cafe/(i+1),t+.003);gn.gain.exponentialRampToValueAtTime(.0001,t+.18);
+    o.connect(gn);gn.connect(ac2.destination);o.start(t);o.stop(t+.2)})}
+function ambInit(){
+  if(ac2){ac2.resume();return}
+  ac2=new (window.AudioContext||window.webkitAudioContext)();
+  const nb=(sec,fn)=>{const b=ac2.createBuffer(1,ac2.sampleRate*sec,ac2.sampleRate);fn(b.getChannelData(0));return b};
+  const mk=(buf,fl)=>{const s=ac2.createBufferSource();s.buffer=buf;s.loop=true;let n=s;
+    fl.forEach(([ty,f,q])=>{const b=ac2.createBiquadFilter();b.type=ty;b.frequency.value=f;b.Q.value=q||.7;n.connect(b);n=b});
+    const gn=ac2.createGain();gn.gain.value=0;n.connect(gn);gn.connect(ac2.destination);s.start();return gn};
+  const white=nb(4,d=>{for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1});
+  const crackle=nb(5,d=>{for(let i=0;i<d.length;i++)d[i]=Math.random()<.0009?(Math.random()*2-1)*(.4+Math.random()*.6):(Math.random()*2-1)*.008});
+  const fire=nb(5,d=>{let l=0;for(let i=0;i<d.length;i++){l=(l+.02*(Math.random()*2-1))/1.02;d[i]=l*3+(Math.random()<.0006?Math.random()*2-1:0)}});
+  ambG.rain=mk(white,[["highpass",500],["lowpass",7000]]);
+  ambG.vinyl=mk(crackle,[["highpass",800]]);
+  ambG.fire=mk(fire,[["lowpass",1800]]);
+  ambG.cafe=mk(white,[["bandpass",900,.5],["lowpass",2200]]);
+  setInterval(()=>{if(ac2.state==="running"&&ambLvl.cafe>.05&&Math.random()<.4)clink()},2200);
+  Object.keys(ambLvl).forEach(apply);
+}
+$("amb").oninput=e=>{const k=e.target.dataset.k;if(!k)return;ambInit();ambLvl[k]=+e.target.value;apply(k);save()};
+addEventListener("pointerdown",()=>{if(Object.values(ambLvl).some(x=>x>0))ambInit()},{once:true});
 
 requestAnimationFrame(frame);
 </script>
